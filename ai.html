@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Your Day with AI</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .container {
+      background: #fff;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      padding: 20px;
+      width: 400px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 22px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    input, button {
+      width: 90%;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .output {
+      margin-top: 20px;
+      text-align: left;
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 10px;
+      font-size: 14px;
+      color: #444;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✨ Design Your Day with AI</h1>
+    <input type="text" id="morning" placeholder="Morning activity">
+    <input type="text" id="afternoon" placeholder="Afternoon activity">
+    <input type="text" id="evening" placeholder="Evening activity">
+    <button onclick="designDay()">Generate Plan</button>
+    <div class="output" id="output"></div>
+  </div>
+
+  <script>
+    async function designDay() {
+      const morning = document.getElementById("morning").value;
+      const afternoon = document.getElementById("afternoon").value;
+      const evening = document.getElementById("evening").value;
+
+      const response = await fetch("http://127.0.0.1:8000/design_day", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ morning, afternoon, evening })
+      });
+
+      const result = await response.json();
+      document.getElementById("output").innerHTML =
+        `<strong>Your AI-Optimized Day:</strong><br><br>` +
+        `<b>Morning:</b> ${result.plan.morning}<br>` +
+        `<b>Afternoon:</b> ${result.plan.afternoon}<br>` +
+        `<b>Evening:</b> ${result.plan.evening}`;
+    }
+  </script>
+</body>
+</html>
