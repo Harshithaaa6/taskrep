@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI — Trained On Your Day (Prototype)</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#7c5cff;--glass: rgba(255,255,255,0.04)}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    body{background:linear-gradient(180deg,#071022 0%, #071933 70%);color:#e6eef6;padding:28px}
+    .app{max-width:1100px;margin:0 auto}
+    header{display:flex;align-items:center;gap:16px}
+    h1{margin:0;font-size:20px}
+    .grid{display:grid;grid-template-columns:1fr 420px;gap:18px;margin-top:18px}
+    .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    textarea, input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;color:inherit}
+    button{background:var(--accent);border:none;padding:10px 12px;border-radius:10px;color:white;cursor:pointer}
+    .muted{color:var(--muted);font-size:13px}
+    .entries{max-height:420px;overflow:auto;margin-top:10px}
+    .entry{padding:10px;border-radius:10px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);margin-bottom:10px}
+    .row{display:flex;gap:8px;align-items:center}
+    .small{font-size:12px;color:var(--muted)}
+    .thumb{width:74px;height:74px;object-fit:cover;border-radius:8px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .note{font-size:12px;color:var(--muted);margin-top:8px}
+    .success{color:#7fffd4}
+    .danger{color:#ff8177}
+    .actions{display:flex;gap:8px;margin-top:12px}
+    .search{display:flex;gap:8px;align-items:center}
+    pre{white-space:pre-wrap;font-size:13px}
+    footer{margin-top:12px;color:var(--muted);font-size:13px}
+  </style>
+  <!-- TensorFlow JS & Universal Sentence Encoder CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder@1.3.3/dist/universal-sentence-encoder.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>AI — Trained On Your Day (prototype)</h1>
+        <div class="muted">Collect text, images, and audio snippets from your day — train lightweight models in-browser.</div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LEFT: Data collection + controls -->
+      <section class="card">
+        <h3>Capture an entry</h3>
+        <label for="text">Text note</label>
+        <textarea id="text" rows="4" placeholder="What happened? feelings? small details..."></textarea>
+
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1">
+            <label for="photo">Add photos</label>
+            <input id="photo" type="file" accept="image/*" multiple />
+          </div>
+          <div style="width:150px">
+            <label>Record audio</label>
+            <div class="controls">
+              <button id="recBtn">Record</button>
+              <button id="stopRec" disabled>Stop</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="saveEntry">Save entry</button>
+          <button id="clearAll">Clear all data</button>
+          <button id="exportBtn">Export JSON</button>
+          <input id="importFile" type="file" accept="application/json" style="display:none" />
+          <button id="importBtn">Import JSON</button>
+        </div>
+
+        <div class="note">Entries are stored locally in your browser (localStorage). Training happens in-memory.</div>
+
+        <hr style="margin:12px 0;border:none;border-top:1px solid rgba(255,255,255,0.03)" />
+
+        <h3>Train & Use</h3>
+        <div class="row" style="margin-bottom:8px">
+          <button id="trainText">Train text embeddings</button>
+          <button id="buildMarkov">Build Markov generator</button>
+          <button id="generate">Generate 'Your Day' (creative)</button>
+        </div>
+        <div class="row" style="align-items:flex-start">
+          <div style="flex:1">
+            <label for="query">Find similar entries</label>
+            <div class="search"><input id="query" type="text" placeholder="Search by phrase (uses embeddings)" /><button id="searchBtn">Search</button></div>
+            <div id="searchResults" class="muted"></div>
+          </div>
+          <div style="width:170px">
+            <label>Status</label>
+            <div id="status" class="small">idle</div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- RIGHT: Explorer / Entries / Output -->
+      <aside class="card">
+        <h3>Your Entries</h3>
+        <div id="entries" class="entries"></div>
+
+        <hr style="margin:12px 0;border:none;border-top:1px solid rgba(255,255,255,0.03)" />
+        <h3>AI Output</h3>
+        <div id="output" class="entry">Nothing generated yet</div>
+
+        <footer>
+          Tip: add a few short text notes (5–30 words each) and press "Train text embeddings" then try search or generation.
+        </footer>
+      </aside>
+    </div>
+  </div>
+
+<script>
+/* ------------------------
+   Data & utilities
+   ------------------------*/
+const LS_KEY = 'day_ai_entries_v1';
+let entries = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+let recorder, audioChunks;
+let useModel = null; // universal sentence encoder
+let embeddings = null; // Float32Array array matching entries (text-only)
+let markov = {};
+
+function saveToStorage(){ localStorage.setItem(LS_KEY, JSON.stringify(entries)); }
+function nowISO(){ return new Date().toISOString(); }
+
+/* ------------------------
+   UI helpers
+   ------------------------*/
+const entriesEl = document.getElementById('entries');
+const statusEl = document.getElementById('status');
+const outputEl = document.getElementById('output');
+function setStatus(s){ statusEl.textContent = s; }
+
+function renderEntries(){
+  entriesEl.innerHTML = '';
+  if(entries.length === 0){ entriesEl.innerHTML = '<div class="muted">No entries yet — add one above.</div>'; return; }
+  entries.slice().reverse().forEach((e,i)=>{
+    const div = document.createElement('div'); div.className='entry';
+    const date = new Date(e.t).toLocaleString();
+    let html = `<div class="row" style="justify-content:space-between"><strong>${e.title||'Untitled'}</strong><span class="small">${date}</span></div>`;
+    if(e.text) html += `<div style="margin-top:8px">${escapeHtml(e.text)}</div>`;
+    if(e.images && e.images.length){ html += '<div style="display:flex;gap:8px;margin-top:8px">' + e.images.map(src=>`<img class="thumb" src="${src}"/>`).join('') + '</div>'; }
+    if(e.audio){ html += `<div style="margin-top:8px"><audio controls src="${e.audio}"></audio></div>`; }
+    html += `<div style="margin-top:8px" class="row"><button onclick="deleteEntry(${entries.length-1-i})">Delete</button><button onclick="duplicateEntry(${entries.length-1-i})">Duplicate</button></div>`;
+    div.innerHTML = html;
+    entriesEl.appendChild(div);
+  });
+}
+
+function escapeHtml(str){ return str.replace(/[&<>"']/g,tag=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[tag])); }
+
+window.deleteEntry = function(idx){ if(!confirm('Delete this entry?')) return; entries.splice(idx,1); saveToStorage(); renderEntries(); }
+window.duplicateEntry = function(idx){ const copy = JSON.parse(JSON.stringify(entries[idx])); copy.t = nowISO(); entries.push(copy); saveToStorage(); renderEntries(); }
+
+/* ------------------------
+   Recording audio
+   ------------------------*/
+const recBtn = document.getElementById('recBtn');
+const stopRec = document.getElementById('stopRec');
+recBtn.onclick = async ()=>{
+  if(!navigator.mediaDevices){ alert('Recording not supported in this browser'); return; }
+  audioChunks = [];
+  const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = e=> audioChunks.push(e.data);
+  recorder.onstop = ()=>{
+    const blob = new Blob(audioChunks, {type:'audio/webm'});
+    const url = URL.createObjectURL(blob);
+    // preview & attach when saving
+    recBtn.disabled = false; stopRec.disabled = true;
+    // store last recorded in temp var
+    window._lastRecordedAudio = {blob, url};
+    setStatus('Recorded audio ready to attach');
+  };
+  recorder.start();
+  recBtn.disabled = true; stopRec.disabled = false; setStatus('Recording...');
+}
+stopRec.onclick = ()=>{ if(recorder && recorder.state === 'recording'){ recorder.stop(); setStatus('Recording stopped'); } }
+
+/* ------------------------
+   Save entry
+   ------------------------*/
+const saveEntryBtn = document.getElementById('saveEntry');
+const photoInput = document.getElementById('photo');
+saveEntryBtn.onclick = async ()=>{
+  const text = document.getElementById('text').value.trim();
+  const title = text.split('\n')[0]?.slice(0,60) || '';
+  const imageFiles = Array.from(photoInput.files || []);
+  const images = [];
+  for(const f of imageFiles){
+    images.push(await fileToDataURL(f));
+  }
+  // attach recorded audio if exists
+  let audioData = null;
+  if(window._lastRecordedAudio){
+    // convert blob to dataURL
+    audioData = await blobToDataURL(window._lastRecordedAudio.blob);
+    // remove temp
+    window._lastRecordedAudio = null;
+  }
+  const entry = { t: nowISO(), title, text, images, audio: audioData };
+  entries.push(entry); saveToStorage(); renderEntries();
+  document.getElementById('text').value = '';
+  photoInput.value = '';
+  setStatus('Saved entry');
+}
+
+function fileToDataURL(file){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); }
+function blobToDataURL(blob){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }
+
+/* ------------------------
+   Export / Import
+   ------------------------*/
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const importFile = document.getElementById('importFile');
+exportBtn.onclick = ()=>{
+  const blob = new Blob([JSON.stringify(entries, null, 2)],{type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'day_ai_entries.json'; a.click();
+}
+importBtn.onclick = ()=> importFile.click();
+importFile.onchange = async (ev)=>{
+  const f = ev.target.files[0]; if(!f) return; const txt = await f.text(); try{ const newData = JSON.parse(txt); if(Array.isArray(newData)){ entries = entries.concat(newData); saveToStorage(); renderEntries(); setStatus('Imported entries'); } else alert('JSON must be an array'); }catch(e){ alert('Invalid JSON file'); }
+}
+
+/* ------------------------
+   Markov chain generator (simple)
+   ------------------------*/
+function buildMarkov(){ markov = {}; const corpus = entries.map(e=>e.text||'').join('\n');
+  const tokens = corpus.split(/\s+/).filter(Boolean);
+  for(let i=0;i<tokens.length-1;i++){ const a = tokens[i]; const b = tokens[i+1]; if(!markov[a]) markov[a]=[]; markov[a].push(b); }
+  setStatus('Markov model built — ' + Object.keys(markov).length + ' states');
+}
+function generateMarkov(length=60){ const keys = Object.keys(markov); if(keys.length===0) return "(not enough text to generate)";
+  let cur = keys[Math.floor(Math.random()*keys.length)]; let out = [cur];
+  for(let i=0;i<length;i++){ const arr = markov[cur]; if(!arr || arr.length===0) break; cur = arr[Math.floor(Math.random()*arr.length)]; out.push(cur); }
+  return out.join(' ');
+}
+
+/* ------------------------
+   Embeddings & search using Universal Sentence Encoder
+   ------------------------*/
+async function ensureUSE(){ if(useModel) return useModel; setStatus('Loading Universal Sentence Encoder (may take a few seconds)...'); useModel = await use('@tensorflow-models/universal-sentence-encoder'); setStatus('USE loaded'); return useModel; }
+
+async function trainTextEmbeddings(){
+  const model = await ensureUSE();
+  const texts = entries.map(e=>e.text || '');
+  if(texts.length === 0){ setStatus('No texts to train on'); return; }
+  setStatus('Creating embeddings...');
+  const embeddingsTensor = await model.embed(texts);
+  const arr = await embeddingsTensor.array();
+  embeddings = arr; // array of arrays
+  embeddingsTensor.dispose();
+  setStatus('Embeddings ready for ' + embeddings.length + ' entries');
+}
+
+function cosine(a,b){ let dot=0, an=0, bn=0; for(let i=0;i<a.length;i++){ dot+=a[i]*b[i]; an+=a[i]*a[i]; bn+=b[i]*b[i]; } return dot / (Math.sqrt(an)*Math.sqrt(bn) + 1e-12); }
+
+async function searchSimilar(q){ if(!embeddings){ await trainTextEmbeddings(); if(!embeddings) return []; }
+  const model = await ensureUSE(); const qEmbT = await model.embed([q]); const qEmb = await qEmbT.array(); qEmbT.dispose();
+  const scores = embeddings.map((v,i)=>({i,score:cosine(v,qEmb[0])}));
+  scores.sort((a,b)=>b.score-a.score);
+  return scores.slice(0,6).map(s=>({score:s.score,entry:entries[s.i],index:s.i}));
+}
+
+/* ------------------------
+   Wire up UI actions
+   ------------------------*/
+document.getElementById('clearAll').onclick = ()=>{ if(!confirm('Clear ALL entries from this browser?')) return; entries = []; saveToStorage(); embeddings = null; renderEntries(); setStatus('Cleared data'); }
+
+document.getElementById('trainText').onclick = async ()=>{ await trainTextEmbeddings(); }
+
+document.getElementById('searchBtn').onclick = async ()=>{
+  const q = document.getElementById('query').value.trim(); if(!q){ alert('Type a search phrase'); return; }
+  setStatus('Searching...'); const res = await searchSimilar(q);
+  const container = document.getElementById('searchResults'); container.innerHTML = '';
+  if(res.length===0) container.innerHTML = '<div class="muted">No results</div>';
+  else{
+    res.forEach(r=>{
+      const d = document.createElement('div'); d.className='entry';
+      d.innerHTML = `<div class="row" style="justify-content:space-between"><strong>${r.entry.title||'Untitled'}</strong><span class="small">score ${r.score.toFixed(3)}</span></div><div style="margin-top:6px">${escapeHtml(r.entry.text||'')}</div>`;
+      container.appendChild(d);
+    });
+  }
+  setStatus('Search complete');
+}
+
+/* ------------------------
+   Generate creative output
+   ------------------------*/
+document.getElementById('buildMarkov').onclick = ()=>{ buildMarkov(); }
+
+document.getElementById('generate').onclick = async ()=>{
+  setStatus('Generating...');
+  // approach: combine markov text + a summary of top 3 entries (by length) to create a short creative summary
+  const markovText = generateMarkov(80);
+  let sample = entries.slice().sort((a,b)=> (b.text||'').length - (a.text||'').length).slice(0,3).map(e=>e.text).join('\n---\n');
+  if(!sample) sample = markovText;
+  // light 'recombination' — stitch markov + samples
+  const out = `A day folded into fragments:\n\n${markovText}\n\nFragments used:\n${sample}`;
+  outputEl.innerHTML = `<pre>${escapeHtml(out)}</pre>`;
+  setStatus('Generated output');
+}
+
+/* ------------------------
+   Initialization
+   ------------------------*/
+function init(){ renderEntries(); setStatus('ready'); }
+init();
+</script>
+</body>
+</html>
