@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Color Guessing Game</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      margin-bottom: 10px;
+      color: #333;
+    }
+    #colorDisplay {
+      font-size: 24px;
+      margin: 20px 0;
+      font-weight: bold;
+    }
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      gap: 15px;
+      justify-content: center;
+      margin: 20px 0;
+    }
+    .color-box {
+      width: 100px;
+      height: 100px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform 0.2s;
+      border: 2px solid #eee;
+    }
+    .color-box:hover {
+      transform: scale(1.1);
+    }
+    #message {
+      font-size: 18px;
+      margin-top: 15px;
+      font-weight: bold;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 Color Guessing Game</h1>
+  <p>Guess which color matches this RGB value:</p>
+  <div id="colorDisplay"></div>
+  <div class="color-grid" id="colorGrid"></div>
+  <p id="message"></p>
+  <button onclick="startGame()">Play Again</button>
+
+  <script>
+    let correctColor = "";
+
+    function randomColor() {
+      const r = Math.floor(Math.random() * 256);
+      const g = Math.floor(Math.random() * 256);
+      const b = Math.floor(Math.random() * 256);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function startGame() {
+      const colors = [];
+      for (let i = 0; i < 6; i++) {
+        colors.push(randomColor());
+      }
+      correctColor = colors[Math.floor(Math.random() * colors.length)];
+      document.getElementById("colorDisplay").textContent = correctColor;
+
+      const grid = document.getElementById("colorGrid");
+      grid.innerHTML = "";
+
+      colors.forEach(color => {
+        const box = document.createElement("div");
+        box.className = "color-box";
+        box.style.backgroundColor = color;
+        box.onclick = () => checkGuess(color);
+        grid.appendChild(box);
+      });
+
+      document.getElementById("message").textContent = "";
+    }
+
+    function checkGuess(color) {
+      if (color === correctColor) {
+        document.getElementById("message").textContent = "✅ Correct! Well done!";
+      } else {
+        document.getElementById("message").textContent = "❌ Wrong! Try again!";
+      }
+    }
+
+    // Start game on page load
+    startGame();
+  </script>
+</body>
+</html>
