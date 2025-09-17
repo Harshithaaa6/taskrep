@@ -1,4 +1,4 @@
-# app.py
+
 import os
 import io
 import json
@@ -18,12 +18,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from PIL import Image
 import numpy as np
 
-# Embedding libraries
+
 from sentence_transformers import SentenceTransformer
 from transformers import CLIPProcessor, CLIPModel
 import torch
 
-# ---------------------------
+# --------------------------
 # Config
 # ---------------------------
 STORAGE_DIR = os.environ.get("STORAGE_DIR", "./storage")
