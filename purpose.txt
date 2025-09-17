@@ -1,2 +1,0 @@
-This web application is used to document your day with images, sounds, or writing, and train a simple AI to create surreal versions of your routine.
-This helps to create your daily routine with AI and hence in your hectic time you can record your routine using AI hence saves time and can be memorised.
